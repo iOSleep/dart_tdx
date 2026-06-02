@@ -15,19 +15,15 @@
 
 ## 安装
 
-在 `pubspec.yaml` 中添加：
+```bash
+dart pub add dart_tdx
+```
+
+或者在 `pubspec.yaml` 中添加：
 
 ```yaml
 dependencies:
-  dart_tdx:
-    git:
-      url: https://github.com/iOSleep/dart_tdx.git
-```
-
-然后运行：
-
-```bash
-dart pub get
+  dart_tdx: ^1.0.0
 ```
 
 ## 快速开始
