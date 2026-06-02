@@ -34,6 +34,12 @@ class KLineType {
   static const int year = 11;
 }
 
+/// Frequency string list (matching Python mootdx FREQUENCY constant).
+const List<String> FREQUENCY = [
+  '5m', '15m', '30m', '1h', 'day', 'week', 'mon',
+  'ex_1m', '1m', 'dk', '3mon', 'year'
+];
+
 /// Max transaction / K-line counts
 class Limits {
   static const int maxTransactionCount = 2000;
@@ -114,4 +120,5 @@ const Map<String, List<double>> securityCoefficient = {
   'SZ_INDEX': [0.01, 1.0],
   'SZ_FUND': [0.001, 0.01],
   'SZ_BOND': [0.0001, 0.01],
+  'BJ_A_STOCK': [0.01, 0.01],
 };

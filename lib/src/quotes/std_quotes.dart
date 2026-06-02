@@ -120,7 +120,10 @@ class StdQuotes {
     int offset = 800,
   }) async {
     final freq = getFrequency(frequency);
-    final market = getStockMarket(symbol);
+    // Python: market = (MARKET_SZ, MARKET_SH)[symbol[:2] in ['00', '88', '99']]
+    final clean = symbol.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
+    final code2 = clean.length >= 2 ? clean.substring(0, 2) : '';
+    final market = ['00', '88', '99'].contains(code2) ? 1 : 0;
     final count = min(offset, Limits.maxKLineCount);
 
     final result =

@@ -18,8 +18,12 @@ String getSecurityType(int market, String code) {
     if (['60', '68'].contains(head)) return 'SH_A_STOCK';
     if (head == '90') return 'SH_B_STOCK';
     if (['00', '88', '99'].contains(head)) return 'SH_INDEX';
-    if (['50', '51'].contains(head)) return 'SH_FUND';
+    if (['5'].any((p) => head.startsWith(p))) return 'SH_FUND';
     if (['01', '10', '11', '12', '13', '14', '20'].contains(head)) return 'SH_BOND';
+  } else if (market == 2) {
+    // 北京 (BJ)
+    if (['8'].any((p) => head.startsWith(p))) return 'BJ_A_STOCK';
+    if (['4'].any((p) => head.startsWith(p))) return 'BJ_A_STOCK';
   }
 
   throw UnimplementedError('Unknown security type: market=$market, code=$code');
@@ -33,59 +37,58 @@ double getSecurityCoefficient(int market, String code) {
   return coeff[0];
 }
 
-/// Determine market (0 for SZ, 1 for SH) from stock code.
+/// Determine market (0 for SZ, 1 for SH, 2 for BJ) from stock code.
+/// Logic aligned with Python mootdx `get_stock_market`.
 int getStockMarket(String symbol, [bool returnName = false]) {
   final code = symbol.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
-  if (returnName) {
-    if (code.startsWith('sh') || code.startsWith('SH')) return 1;
-    if (code.startsWith('sz') || code.startsWith('SZ')) return 0;
+
+  // Check explicit market prefix (always, matching Python behavior)
+  if (code.startsWith('sh') || code.startsWith('SH')) return 1;
+  if (code.startsWith('sz') || code.startsWith('SZ')) return 0;
+  if (code.startsWith('bj') || code.startsWith('BJ')) return 2;
+
+  // Multi-digit prefixes for Shanghai
+  if (['50', '51', '60', '68', '90', '110', '113', '132', '204']
+      .any((p) => code.startsWith(p))) {
+    return 1;
   }
-  if (code.startsWith('6') || code.startsWith('9')) return 1;
-  return 0;
+
+  // Multi-digit prefixes for Shenzhen
+  if (['00', '12', '13', '18', '15', '16', '18', '20', '30', '39', '115', '1318']
+      .any((p) => code.startsWith(p))) {
+    return 0;
+  }
+
+  // Single-digit fallback
+  if (['5', '6', '9', '7'].any((p) => code.startsWith(p))) return 1;
+  if (['4', '8'].any((p) => code.startsWith(p))) return 2;
+
+  return 1; // default to Shanghai (matching Python)
 }
 
 /// Determine markets for a list of stock symbols.
 List<(int, String)> getStockMarkets(List<String> symbols) {
   return symbols.map((s) {
-    final clean = s.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
-    final market = getStockMarket(clean);
-    return (market, clean);
+    // Remove market prefix if present (matching Python symbol.strip('sh').strip('sz'))
+    String code = s;
+    final lowered = code.toLowerCase();
+    if (lowered.startsWith('sh') || lowered.startsWith('sz') || lowered.startsWith('bj')) {
+      code = code.substring(2);
+    }
+    final market = getStockMarket(code);
+    return (market, code);
   }).toList();
 }
 
 /// Get frequency int from string or int.
+/// Aligned with Python mootdx `get_frequency` (FREQUENCY list index).
 int getFrequency(dynamic freq) {
   if (freq is int) return freq;
   if (freq is String) {
-    switch (freq.toLowerCase()) {
-      case '5m':
-        return KLineType.min5;
-      case '15m':
-        return KLineType.min15;
-      case '30m':
-        return KLineType.min30;
-      case '1h':
-        return KLineType.hour1;
-      case 'day':
-      case 'd':
-        return KLineType.day;
-      case 'week':
-      case 'w':
-        return KLineType.week;
-      case 'month':
-      case 'mon':
-        return KLineType.month;
-      case '1m':
-        return KLineType.min1;
-      case 'dk':
-        return KLineType.riK;
-      case '3mon':
-        return KLineType.month3;
-      case 'year':
-        return KLineType.year;
-    }
+    final idx = FREQUENCY.indexOf(freq.toLowerCase());
+    if (idx >= 0) return idx;
   }
-  return KLineType.day;
+  return 0; // default to 5-minute K-line (matching Python)
 }
 
 /// Parse a variable-length integer from binary data.
