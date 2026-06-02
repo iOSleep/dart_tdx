@@ -17,7 +17,7 @@ class ExtQuotes {
           timeout: timeout,
         );
 
-  /// Factory to create and connect.
+  /// Factory to create and connect (uses first server, matching Python).
   static Future<ExtQuotes> connect({
     String? host,
     int? port,
@@ -29,13 +29,9 @@ class ExtQuotes {
     if (host != null && port != null) {
       await quotes._connectTo(host, port);
     } else {
-      final servers = List.of(exHosts)..shuffle();
-      for (final server in servers) {
-        try {
-          final ok = await quotes._connectTo(server.host, server.port);
-          if (ok) break;
-        } catch (_) {}
-      }
+      // Use first server from exHosts (matching Python: config.get('SERVER').get('EX')[0])
+      final server = exHosts.first;
+      await quotes._connectTo(server.host, server.port);
     }
 
     return quotes;

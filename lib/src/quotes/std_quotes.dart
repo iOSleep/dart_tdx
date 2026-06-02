@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 import 'dart:math';
-
 import '../../models/stock_bar.dart';
 import '../../models/stock_info.dart';
 import '../../models/stock_quote.dart';
@@ -30,7 +29,7 @@ class StdQuotes {
     }
   }
 
-  /// Factory to create and connect to a random TDX server.
+  /// Factory to create and connect (uses first server, matching Python).
   static Future<StdQuotes> connect({
     String? host,
     int? port,
@@ -45,16 +44,9 @@ class StdQuotes {
     if (host != null && port != null) {
       await quotes._connectTo(host, port);
     } else {
-      // Try random server
-      final servers = List.of(hqHosts)..shuffle();
-      for (final server in servers) {
-        try {
-          final ok = await quotes._connectTo(server.host, server.port);
-          if (ok) break;
-        } catch (_) {
-          continue;
-        }
-      }
+      // Use first server from hqHosts (matching Python: config.get('SERVER').get('HQ')[0])
+      final server = hqHosts.first;
+      await quotes._connectTo(server.host, server.port);
     }
 
     return quotes;
@@ -85,13 +77,17 @@ class StdQuotes {
     if (symbols == null) return [];
     if (symbols is! List) symbols = [symbols];
 
-    final markets = getStockMarkets(
-        symbols.map<String>((s) => s.toString()).toList());
+    try {
+      final markets = getStockMarkets(
+          symbols.map<String>((s) => s.toString()).toList());
 
-    final result = await _client.getSecurityQuotes(markets);
-    if (result.isEmpty) return [];
+      final result = await _client.getSecurityQuotes(markets);
+      if (result.isEmpty) return [];
 
-    return parseSecurityQuotes(result);
+      return parseSecurityQuotes(result);
+    } catch (_) {
+      return [];
+    }
   }
 
   /// Get K-line bars.
@@ -135,6 +131,9 @@ class StdQuotes {
 
   /// Get stock count in market.
   Future<int> stockCount(int market) async {
+    if (![0, 1, 2].contains(market)) {
+      throw ArgumentError('Market code must be 0 (SZ), 1 (SH), or 2 (BJ)');
+    }
     final result = await _client.getSecurityCount(market);
     return parseSecurityCount(result);
   }
