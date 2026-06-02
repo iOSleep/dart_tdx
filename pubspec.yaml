@@ -1,0 +1,17 @@
+name: dart_tdx
+description: TDX (通达信) stock market data interface for Dart. 
+  Real-time quotes, historical K-line data, financial data, 
+  and offline file reading - a Dart port of mootdx.
+version: 0.1.0
+repository: https://github.com/iOSleep/dart_tdx
+homepage: https://github.com/iOSleep/dart_tdx
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  archive: ^3.4.0
+
+dev_dependencies:
+  lints: ^3.0.0
+  test: ^1.24.0

@@ -1,0 +1,205 @@
+import 'dart:typed_data';
+
+import 'constants.dart';
+
+/// Get security type string from market and code.
+String getSecurityType(int market, String code) {
+  final head = code.substring(0, 2);
+
+  if (market == 0) {
+    // 深圳
+    if (['00', '30'].contains(head)) return 'SZ_A_STOCK';
+    if (head == '20') return 'SZ_B_STOCK';
+    if (head == '39') return 'SZ_INDEX';
+    if (['15', '16'].contains(head)) return 'SZ_FUND';
+    if (['10', '11', '12', '13', '14'].contains(head)) return 'SZ_BOND';
+  } else if (market == 1) {
+    // 上海
+    if (['60', '68'].contains(head)) return 'SH_A_STOCK';
+    if (head == '90') return 'SH_B_STOCK';
+    if (['00', '88', '99'].contains(head)) return 'SH_INDEX';
+    if (['50', '51'].contains(head)) return 'SH_FUND';
+    if (['01', '10', '11', '12', '13', '14', '20'].contains(head)) return 'SH_BOND';
+  }
+
+  throw UnimplementedError('Unknown security type: market=$market, code=$code');
+}
+
+/// Get security price coefficient.
+double getSecurityCoefficient(int market, String code) {
+  final type = getSecurityType(market, code);
+  final coeff = securityCoefficient[type];
+  if (coeff == null || coeff.isEmpty) return 0.01;
+  return coeff[0];
+}
+
+/// Determine market (0 for SZ, 1 for SH) from stock code.
+int getStockMarket(String symbol, [bool returnName = false]) {
+  final code = symbol.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
+  if (returnName) {
+    if (code.startsWith('sh') || code.startsWith('SH')) return 1;
+    if (code.startsWith('sz') || code.startsWith('SZ')) return 0;
+  }
+  if (code.startsWith('6') || code.startsWith('9')) return 1;
+  return 0;
+}
+
+/// Determine markets for a list of stock symbols.
+List<(int, String)> getStockMarkets(List<String> symbols) {
+  return symbols.map((s) {
+    final clean = s.replaceAll(RegExp(r'[^0-9a-zA-Z]'), '');
+    final market = getStockMarket(clean);
+    return (market, clean);
+  }).toList();
+}
+
+/// Get frequency int from string or int.
+int getFrequency(dynamic freq) {
+  if (freq is int) return freq;
+  if (freq is String) {
+    switch (freq.toLowerCase()) {
+      case '5m':
+        return KLineType.min5;
+      case '15m':
+        return KLineType.min15;
+      case '30m':
+        return KLineType.min30;
+      case '1h':
+        return KLineType.hour1;
+      case 'day':
+      case 'd':
+        return KLineType.day;
+      case 'week':
+      case 'w':
+        return KLineType.week;
+      case 'month':
+      case 'mon':
+        return KLineType.month;
+      case '1m':
+        return KLineType.min1;
+      case 'dk':
+        return KLineType.riK;
+      case '3mon':
+        return KLineType.month3;
+      case 'year':
+        return KLineType.year;
+    }
+  }
+  return KLineType.day;
+}
+
+/// Parse a variable-length integer from binary data.
+/// This is a variable-length encoding similar to UTF-8 for signed numbers.
+({int value, int newPos}) getPrice(Uint8List data, int pos) {
+  int posByte = 6;
+  int bdata = data[pos];
+  int intData = bdata & 0x3F;
+  bool sign = (bdata & 0x40) != 0;
+
+  if ((bdata & 0x80) != 0) {
+    while (true) {
+      pos++;
+      bdata = data[pos];
+      intData += (bdata & 0x7F) << posByte;
+      posByte += 7;
+      if ((bdata & 0x80) == 0) break;
+    }
+  }
+  pos++;
+
+  if (sign) intData = -intData;
+  return (value: intData, newPos: pos);
+}
+
+/// Calculate price from base and diff.
+double calPrice(int basePrice, int diff, double coefficient) {
+  return (basePrice + diff) * coefficient;
+}
+
+/// Parse volume from raw integer.
+double getVolume(int vol) {
+  int logPoint = vol >> (8 * 3);
+  int hleax = (vol >> (8 * 2)) & 0xFF;
+  int lheax = (vol >> 8) & 0xFF;
+  int lleax = vol & 0xFF;
+
+  int dwEcx = logPoint * 2 - 0x7F;
+  int dwEdx = logPoint * 2 - 0x86;
+  int dwEsi = logPoint * 2 - 0x8E;
+  int dwEax = logPoint * 2 - 0x96;
+
+  int tmpEax;
+  if (dwEcx < 0) {
+    tmpEax = -dwEcx;
+  } else {
+    tmpEax = dwEcx;
+  }
+
+  double dblXmm6 = _pow2(tmpEax);
+  if (dwEcx < 0) dblXmm6 = 1.0 / dblXmm6;
+
+  double dblXmm4;
+  if (hleax > 0x80) {
+    int dwtmpeax = dwEdx + 1;
+    double tmpdblXmm3 = _pow2(dwtmpeax);
+    double dblXmm0 = _pow2(dwEdx) * 128.0;
+    dblXmm0 += (hleax & 0x7F) * tmpdblXmm3;
+    dblXmm4 = dblXmm0;
+  } else {
+    if (dwEdx >= 0) {
+      dblXmm4 = _pow2(dwEdx) * hleax.toDouble();
+    } else {
+      dblXmm4 = (1.0 / _pow2(-dwEdx)) * hleax.toDouble();
+    }
+  }
+
+  double dblXmm3 = _pow2(dwEsi) * lheax;
+  double dblXmm1 = _pow2(dwEax) * lleax;
+
+  if ((hleax & 0x80) != 0) {
+    dblXmm3 *= 2.0;
+    dblXmm1 *= 2.0;
+  }
+
+  return dblXmm6 + dblXmm4 + dblXmm3 + dblXmm1;
+}
+
+double _pow2(int n) {
+  if (n < 0) return 1.0 / (1 << -n);
+  return (1 << n).toDouble();
+}
+
+/// Parse datetime from buffer. Returns (year, month, day, hour, minute, newPos).
+(int, int, int, int, int, int) getDateTime(
+    int category, Uint8List buffer, int pos) {
+  int minute = 0;
+  int hour = 15;
+
+  if (category < 4 || category == 7 || category == 8) {
+    int zipDay = buffer.buffer.asByteData().getUint16(pos, Endian.little);
+    int minutes = buffer.buffer.asByteData().getUint16(pos + 2, Endian.little);
+    int month = ((zipDay % 2048) ~/ 100);
+    int year = (zipDay >> 11) + 2004;
+    int day = (zipDay % 2048) % 100;
+    minute = minutes % 60;
+    hour = minutes ~/ 60;
+    pos += 4;
+    return (year, month, day, hour, minute, pos);
+  } else {
+    int zipDay = buffer.buffer.asByteData().getUint32(pos, Endian.little);
+    int month = ((zipDay % 10000) ~/ 100);
+    int year = zipDay ~/ 10000;
+    int day = zipDay % 100;
+    pos += 4;
+    return (year, month, day, hour, minute, pos);
+  }
+}
+
+/// Parse time from buffer.
+(int, int, int) getTime(Uint8List buffer, int pos) {
+  int minutes = buffer.buffer.asByteData().getUint16(pos, Endian.little);
+  int hour = minutes ~/ 60;
+  int minute = minutes % 60;
+  pos += 2;
+  return (hour, minute, pos);
+}

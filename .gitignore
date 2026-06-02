@@ -1,0 +1,20 @@
+# Dart
+.dart_tool/
+.packages
+.pub/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test local
+test_local/
+
+# Lock file (optional, depends on preference)
+pubspec.lock
