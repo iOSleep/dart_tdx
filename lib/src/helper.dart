@@ -93,7 +93,13 @@ int getFrequency(dynamic freq) {
 
 /// Parse a variable-length integer from binary data.
 /// This is a variable-length encoding similar to UTF-8 for signed numbers.
+///
+/// 加了越界保护：若 [pos] 超出 [data] 范围，返回 (0, pos) 而非抛 [RangeError]，
+/// 配合 parser 中逐字段的长度检查，可安全处理截断响应。
 ({int value, int newPos}) getPrice(Uint8List data, int pos) {
+  if (pos < 0 || pos >= data.length) {
+    return (value: 0, newPos: pos);
+  }
   int posByte = 6;
   int bdata = data[pos];
   int intData = bdata & 0x3F;
@@ -102,6 +108,7 @@ int getFrequency(dynamic freq) {
   if ((bdata & 0x80) != 0) {
     while (true) {
       pos++;
+      if (pos >= data.length) break; // 越界保护：停止继续读取
       bdata = data[pos];
       intData += (bdata & 0x7F) << posByte;
       posByte += 7;

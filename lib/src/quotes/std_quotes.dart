@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:math';
 import '../../models/stock_bar.dart';
@@ -29,7 +30,16 @@ class StdQuotes {
     }
   }
 
-  /// Factory to create and connect (uses first server, matching Python).
+  /// 已探测到的最佳 host（进程内缓存，避免每次新建连接都全量扫描）。
+  static ({String host, int port})? _cachedBest;
+  /// 正在进行的 host 扫描（去重：多个并发连接共享同一次扫描结果）。
+  static Future<({String host, int port})>? _scanFuture;
+
+  /// Factory to create and connect.
+  ///
+  /// 若不指定 [host]/[port]，则自动从 [hqHosts] 中选择可用节点：
+  /// 优先复用缓存的最佳节点；若缓存节点已失效，则扫描列表直到找到
+  /// 「能连接且能正常返回数据」的节点（不再写死第一个，避免踩中坏节点）。
   static Future<StdQuotes> connect({
     String? host,
     int? port,
@@ -43,13 +53,63 @@ class StdQuotes {
 
     if (host != null && port != null) {
       await quotes._connectTo(host, port);
-    } else {
-      // Use first server from hqHosts (matching Python: config.get('SERVER').get('HQ')[0])
-      final server = hqHosts.first;
-      await quotes._connectTo(server.host, server.port);
+      return quotes;
     }
 
+    var best = _cachedBest ?? await _scanHostsDedup();
+    var ok = await quotes._connectTo(best.host, best.port);
+    if (!ok) {
+      // 缓存节点已不可用，强制重新扫描一次
+      _cachedBest = null;
+      best = await _scanHostsDedup();
+      ok = await quotes._connectTo(best.host, best.port);
+    }
+    if (ok) _cachedBest = best;
     return quotes;
+  }
+
+  /// 扫描 [hqHosts]，返回首个「能连接且能正常返回数据」的节点。
+  /// 用较短超时，使不可用节点快速跳过；并发调用去重，共享同一次扫描。
+  static Future<({String host, int port})> _scanHostsDedup() {
+    if (_scanFuture != null) return _scanFuture!;
+    final completer = Completer<({String host, int port})>();
+    _scanFuture = completer.future;
+    _doScan().then((v) {
+      _scanFuture = null;
+      completer.complete(v);
+    }).catchError((e) {
+      _scanFuture = null;
+      completer.completeError(e);
+    });
+    return completer.future;
+  }
+
+  static Future<({String host, int port})> _doScan() async {
+    const scanTimeout = Duration(seconds: 2);
+    Exception? lastErr;
+    for (final server in hqHosts) {
+      StdQuotes? probe;
+      try {
+        probe = StdQuotes(timeout: scanTimeout);
+        final ok = await probe._connectTo(server.host, server.port);
+        if (!ok) {
+          probe._client.disconnect();
+          continue;
+        }
+        // 轻量校验：该节点确实能返回 K 线数据（直接验证应用所需路径）
+        final probeBars =
+            await probe.bars('600000', frequency: KLineType.day, offset: 1);
+        if (probeBars.isNotEmpty) {
+          probe.close();
+          return (host: server.host, port: server.port);
+        }
+        probe.close();
+      } catch (e) {
+        lastErr = Exception('$e');
+        probe?._client.disconnect();
+      }
+    }
+    throw lastErr ?? Exception('No available TDX host found');
   }
 
   Future<bool> _connectTo(String host, int port) async {

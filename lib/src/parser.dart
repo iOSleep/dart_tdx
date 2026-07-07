@@ -6,35 +6,56 @@ import '../models/stock_quote.dart';
 import 'helper.dart';
 
 /// Parse security K-line bars response.
+///
+/// 对每一步读取都做长度边界校验：通达信服务器偶发返回截断/错误的短包
+/// （如仅 2 字节），若不做校验直接在 [Uint8List] 上按偏移读取会让底层抛出
+/// [RangeError]。此处遇到越界即停止解析，返回已成功解析的部分（至少为空列表），
+/// 由上层调用方按"无数据"处理并走重试/兜底逻辑。
 List<StockBar> parseSecurityBars(int category, Uint8List bodyBuf) {
+  const int retCountBytes = 2; // retCount 为 uint16
+  if (bodyBuf.length < retCountBytes) return [];
+
+  final bd = bodyBuf.buffer.asByteData();
   int pos = 0;
-  final retCount = bodyBuf.buffer.asByteData().getUint16(pos, Endian.little);
-  pos += 2;
+  final retCount = bd.getUint16(pos, Endian.little);
+  pos += retCountBytes;
+
+  if (retCount <= 0) return [];
+
+  // 单条 bar 最小字节数：日期 4 + 4 个价格差(各至少 1 字节) + 成交量 4 + 成交额 4 = 16
+  // 若声明的 retCount 不可能在剩余字节内放下，说明是截断/错误响应，直接放弃。
+  const int minBarBytes = 16;
+  if (pos + retCount * minBarBytes > bodyBuf.length) return [];
 
   final klines = <StockBar>[];
   int preDiffBase = 0;
 
   for (int i = 0; i < retCount; i++) {
+    if (pos + 4 > bodyBuf.length) break; // getDateTime 需要 4 字节
     final (year, month, day, hour, minute, newPos) =
         getDateTime(category, bodyBuf, pos);
     pos = newPos;
 
+    if (pos >= bodyBuf.length) break; // getPrice 首字节
     final openDiff = getPrice(bodyBuf, pos);
     pos = openDiff.newPos;
+    if (pos >= bodyBuf.length) break;
     final closeDiff = getPrice(bodyBuf, pos);
     pos = closeDiff.newPos;
+    if (pos >= bodyBuf.length) break;
     final highDiff = getPrice(bodyBuf, pos);
     pos = highDiff.newPos;
+    if (pos >= bodyBuf.length) break;
     final lowDiff = getPrice(bodyBuf, pos);
     pos = lowDiff.newPos;
 
-    final volRaw =
-        bodyBuf.buffer.asByteData().getUint32(pos, Endian.little);
+    if (pos + 4 > bodyBuf.length) break; // volRaw
+    final volRaw = bd.getUint32(pos, Endian.little);
     final vol = getVolume(volRaw);
     pos += 4;
 
-    final amountRaw =
-        bodyBuf.buffer.asByteData().getUint32(pos, Endian.little);
+    if (pos + 4 > bodyBuf.length) break; // amountRaw
+    final amountRaw = bd.getUint32(pos, Endian.little);
     final amount = getVolume(amountRaw);
     pos += 4;
 
