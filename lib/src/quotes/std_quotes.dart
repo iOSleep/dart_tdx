@@ -85,31 +85,65 @@ class StdQuotes {
   }
 
   static Future<({String host, int port})> _doScan() async {
-    const scanTimeout = Duration(seconds: 2);
-    Exception? lastErr;
-    for (final server in hqHosts) {
-      StdQuotes? probe;
-      try {
-        probe = StdQuotes(timeout: scanTimeout);
-        final ok = await probe._connectTo(server.host, server.port);
-        if (!ok) {
-          probe._client.disconnect();
-          continue;
-        }
-        // 轻量校验：该节点确实能返回 K 线数据（直接验证应用所需路径）
-        final probeBars =
-            await probe.bars('600000', frequency: KLineType.day, offset: 1);
-        if (probeBars.isNotEmpty) {
-          probe.close();
-          return (host: server.host, port: server.port);
-        }
-        probe.close();
-      } catch (e) {
-        lastErr = Exception('$e');
-        probe?._client.disconnect();
+    const scanTimeout = Duration(seconds: 3);
+    const batchSize = 8;
+    const probeSymbol = '510300';
+
+    final orderedHosts = <({String name, String host, int port})>[];
+    final seen = <String>{};
+    for (final server in [...preferredHqHosts, ...hqHosts]) {
+      if (seen.add('${server.host}:${server.port}')) {
+        orderedHosts.add(server);
       }
     }
-    throw lastErr ?? Exception('No available TDX host found');
+
+    final errors = <String>[];
+    for (var start = 0; start < orderedHosts.length; start += batchSize) {
+      final end = min(start + batchSize, orderedHosts.length);
+      final batch = orderedHosts.sublist(start, end);
+      final results = await Future.wait(
+        batch.map((server) => _probeHost(server, scanTimeout, probeSymbol)),
+      );
+
+      for (var i = 0; i < results.length; i++) {
+        final error = results[i];
+        if (error == null) {
+          final server = batch[i];
+          return (host: server.host, port: server.port);
+        }
+        errors.add('${batch[i].host}: $error');
+      }
+    }
+
+    final detail = errors.isEmpty ? '' : ' (${errors.take(3).join('; ')})';
+    throw Exception('No available TDX host found$detail');
+  }
+
+  /// 探测单个节点。返回 `null` 表示节点可用；否则返回失败原因。
+  static Future<String?> _probeHost(
+    ({String name, String host, int port}) server,
+    Duration timeout,
+    String probeSymbol,
+  ) async {
+    StdQuotes? probe;
+    try {
+      probe = StdQuotes(autoRetry: false, timeout: timeout);
+      final ok = await probe._connectTo(server.host, server.port);
+      if (!ok) return '连接失败';
+
+      // ETF 是本库的主要使用场景；验证目标品种可避免选中仅个股可用的节点。
+      final bars = await probe.bars(
+        probeSymbol,
+        frequency: KLineType.day,
+        offset: 1,
+      );
+      if (bars.isEmpty) return 'bars 为空';
+      return null;
+    } catch (e) {
+      return '$e';
+    } finally {
+      probe?.close();
+    }
   }
 
   Future<bool> _connectTo(String host, int port) async {

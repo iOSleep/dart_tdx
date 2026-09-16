@@ -54,6 +54,19 @@ class BlockFiles {
   static const String defaultBlock = 'block.dat';
 }
 
+/// 近期实测可优先探测的行情节点。
+/// 节点会随时间失效，因此只用于缩短首次扫描路径；全部失败时仍会回退扫描 [hqHosts]。
+const List<({String name, String host, int port})> preferredHqHosts = [
+  (name: '国泰君安_18', host: '117.34.114.18', port: 7709),
+  (name: '国泰君安_27', host: '117.34.114.27', port: 7709),
+  (name: '国泰君安_14', host: '117.34.114.14', port: 7709),
+  (name: '国泰君安_20', host: '117.34.114.20', port: 7709),
+  (name: '国泰君安_17', host: '117.34.114.17', port: 7709),
+  (name: '国泰君安_16', host: '117.34.114.16', port: 7709),
+  (name: '国泰君安_15', host: '117.34.114.15', port: 7709),
+  (name: '安信_11', host: '59.36.5.11', port: 7709),
+];
+
 /// TDX server hosts for standard market (股票市场)
 const List<({String name, String host, int port})> hqHosts = [
 (name: 'hq_0', host: '218.85.139.19', port: 7709),
