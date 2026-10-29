@@ -2,6 +2,8 @@
 
 通达信（TDX）股票市场数据接口的 Dart 实现。这是 [mootdx](https://github.com/mootdx/mootdx) 的 Dart 移植版本。
 
+1.0.3 起走 2026-09 行情协议：握手为 `0c02` + `tdxlevel`，K 线版本标识为 `18 7b 00 01`，成交量和成交额是 float32。1.0.2 及更早能连上服务器，但 K 线返回空包。
+
 > **郑重声明**: 本项目只作学习交流，不得用于任何商业目的。
 
 ## 功能
@@ -23,7 +25,7 @@ dart pub add dart_tdx
 
 ```yaml
 dependencies:
-  dart_tdx: ^1.0.0
+  dart_tdx: ^1.0.3
 ```
 
 ## 快速开始
