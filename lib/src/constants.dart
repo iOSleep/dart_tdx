@@ -54,17 +54,17 @@ class BlockFiles {
   static const String defaultBlock = 'block.dat';
 }
 
-/// 近期实测可优先探测的行情节点。
-/// 节点会随时间失效，因此只用于缩短首次扫描路径；全部失败时仍会回退扫描 [hqHosts]。
+/// 2026-09 协议仍可用的行情节点（来自 tdxdata servers.txt）。
+/// 只用于缩短首次扫描；全部失败时回退 [hqHosts]。
 const List<({String name, String host, int port})> preferredHqHosts = [
-  (name: '国泰君安_18', host: '117.34.114.18', port: 7709),
-  (name: '国泰君安_27', host: '117.34.114.27', port: 7709),
-  (name: '国泰君安_14', host: '117.34.114.14', port: 7709),
-  (name: '国泰君安_20', host: '117.34.114.20', port: 7709),
-  (name: '国泰君安_17', host: '117.34.114.17', port: 7709),
-  (name: '国泰君安_16', host: '117.34.114.16', port: 7709),
-  (name: '国泰君安_15', host: '117.34.114.15', port: 7709),
-  (name: '安信_11', host: '59.36.5.11', port: 7709),
+  (name: 'tdx_2026_0', host: '101.35.121.35', port: 7709),
+  (name: 'tdx_2026_1', host: '119.97.185.59', port: 7709),
+  (name: 'tdx_2026_2', host: '124.70.133.119', port: 7709),
+  (name: 'tdx_2026_3', host: '116.205.183.150', port: 7709),
+  (name: 'tdx_2026_4', host: '110.41.147.114', port: 7709),
+  (name: 'tdx_2026_5', host: '123.60.73.44', port: 7709),
+  (name: 'tdx_2026_6', host: '116.205.163.254', port: 7709),
+  (name: 'tdx_2026_7', host: '121.36.225.169', port: 7709),
 ];
 
 /// TDX server hosts for standard market (股票市场)

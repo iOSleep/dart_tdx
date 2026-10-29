@@ -49,15 +49,14 @@ List<StockBar> parseSecurityBars(int category, Uint8List bodyBuf) {
     final lowDiff = getPrice(bodyBuf, pos);
     pos = lowDiff.newPos;
 
-    if (pos + 4 > bodyBuf.length) break; // volRaw
-    final volRaw = bd.getUint32(pos, Endian.little);
-    final vol = getVolume(volRaw);
-    pos += 4;
-
-    if (pos + 4 > bodyBuf.length) break; // amountRaw
-    final amountRaw = bd.getUint32(pos, Endian.little);
-    final amount = getVolume(amountRaw);
-    pos += 4;
+    // 2026-09 起 vol/amount 是 little-endian float32。
+    // 旧 pytdx 的自定义 uint32 解码会把同一段字节读成天文数字。
+    if (pos + 8 > bodyBuf.length) break;
+    final volRaw = bd.getFloat32(pos, Endian.little);
+    final amountRaw = bd.getFloat32(pos + 4, Endian.little);
+    pos += 8;
+    final vol = volRaw.isFinite && volRaw >= 0 ? volRaw : 0.0;
+    final amount = amountRaw.isFinite && amountRaw >= 0 ? amountRaw : 0.0;
 
     final open = (openDiff.value + preDiffBase) / 1000.0;
     final priceOpenDiff = openDiff.value + preDiffBase;

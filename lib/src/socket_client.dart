@@ -142,10 +142,18 @@ class TdxSocketClient {
 
   void close() => disconnect();
 
-  /// Reconnect to the server.
+  /// Reconnect to the server and redo the 2026-09 handshake.
   Future<bool> reconnect() async {
     if (!_closed || _ip == null || _port == null) return false;
-    return connect(_ip!, _port!);
+    final ok = await connect(_ip!, _port!);
+    if (!ok) return false;
+    try {
+      await setup();
+      return true;
+    } catch (_) {
+      disconnect();
+      return false;
+    }
   }
 
   /// Start sending heartbeat packets.
@@ -278,24 +286,62 @@ class TdxSocketClient {
 
   // ---- API Commands (aligned to tdxpy protocol) ----
 
-  /// Setup commands (handshake) — identical to tdxpy hq.py setup().
+  /// 2026-09-10 起服务器拒绝旧版本标识 0x01016408（字节 08 64 01 01）。
+  /// 新标识 0x01007B18（字节 18 7b 00 01）。K 线响应头未变，量额改为 float32。
+  static const int protocolVersion = 0x01007B18;
+
+  /// 0c02 init（13 字节）。不能走 [callApi]：这段响应不是行情帧。
+  static final Uint8List _initPacket = Uint8List.fromList(const [
+    0x0c, 0x02, 0x18, 0x94, 0x00, 0x01, 0x03, 0x00,
+    0x03, 0x00, 0x0d, 0x00, 0x01,
+  ]);
+
+  /// 0c03 tdxlevel 认证（42 字节，少 1 字节服务器不回应）。
+  static final Uint8List _authPacket = Uint8List.fromList(const [
+    0x0c, 0x03, 0x18, 0x99, 0x00, 0x01, 0x20, 0x00,
+    0x20, 0x00, 0xdb, 0x0f, 0x74, 0x64, 0x78, 0x6c,
+    0x65, 0x76, 0x65, 0x6c, 0x00, 0x00, 0x00, 0x29,
+    0x5c, 0xf7, 0x40, 0x11, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x05,
+  ]);
+
+  /// 2026-09 握手：0c02 init + 0c03 tdxlevel。旧的三包 setup 之后行情命令返回空体。
   Future<void> setup() async {
-    await callApi(Uint8List.fromList([
-      0x0c, 0x02, 0x18, 0x93, 0x00, 0x01, 0x03, 0x00,
-      0x03, 0x00, 0x0d, 0x00, 0x01
-    ]));
-    await callApi(Uint8List.fromList([
-      0x0c, 0x02, 0x18, 0x94, 0x00, 0x01, 0x03, 0x00,
-      0x03, 0x00, 0x0d, 0x00, 0x02
-    ]));
-    await callApi(Uint8List.fromList([
-      0x0c, 0x03, 0x18, 0x99, 0x00, 0x01, 0x20, 0x00,
-      0x20, 0x00, 0xdb, 0x0f, 0xd5, 0xd0, 0xc9, 0xcc,
-      0xd6, 0xa4, 0xa8, 0xaf, 0x00, 0x00, 0x00, 0x8f,
-      0xc2, 0x25, 0x40, 0x13, 0x00, 0x00, 0xd5, 0x00,
-      0xc9, 0xcc, 0xbd, 0xf0, 0xd7, 0xea, 0x00, 0x00,
-      0x00, 0x02
-    ]));
+    await _sendAndDrain(_initPacket);
+    await _sendAndDrain(_authPacket);
+  }
+
+  /// 发出握手包并丢掉响应，避免残留字节污染下一次 [callApi] 的帧头。
+  Future<void> _sendAndDrain(Uint8List pkg) async {
+    if (_socket == null || _closed) {
+      throw SocketException('Socket not connected');
+    }
+    final before = _buffer.length;
+    _socket!.add(pkg);
+    await _socket!.flush();
+
+    final deadline = DateTime.now().add(const Duration(milliseconds: 1500));
+    while (DateTime.now().isBefore(deadline) && _buffer.length == before) {
+      await Future.delayed(const Duration(milliseconds: 20));
+    }
+    var stableFor = 0;
+    var lastLen = _buffer.length;
+    while (stableFor < 4) {
+      await Future.delayed(const Duration(milliseconds: 40));
+      if (_buffer.length == lastLen && lastLen > before) {
+        stableFor++;
+      } else {
+        stableFor = 0;
+        lastLen = _buffer.length;
+      }
+      if (DateTime.now().isAfter(deadline.add(const Duration(milliseconds: 800)))) {
+        break;
+      }
+    }
+    if (_buffer.length > before) {
+      _buffer.removeRange(0, _buffer.length);
+    }
   }
 
   /// Helpers for building packets.
@@ -376,7 +422,7 @@ class TdxSocketClient {
     final pc = Uint8List(6);
     for (int i = 0; i < 6 && i < cb.length; i++) pc[i] = cb[i];
     return callApi(_pack("<HIHHHH6sHHHHIIH", [
-      0x010C, 0x01016408, 0x001C, 0x001C, 0x052D, market,
+      0x010C, protocolVersion, 0x001C, 0x001C, 0x052D, market,
       pc.toList(), category, 1, start, count, 0, 0, 0
     ]));
   }
@@ -481,7 +527,7 @@ class TdxSocketClient {
     final pc = Uint8List(6);
     for (int i = 0; i < 6 && i < cb.length; i++) pc[i] = cb[i];
     return callApi(_pack("<HIHHHH6sHHHHIIH", [
-      0x010C, 0x01016408, 0x001C, 0x001C, 0x052D, market,
+      0x010C, protocolVersion, 0x001C, 0x001C, 0x052D, market,
       pc.toList(), category, 1, start, count, 0, 0, 0
     ]));
   }
